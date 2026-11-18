@@ -30,6 +30,7 @@
     <Reference Include="$(BepInExDir)\unhollowed\UnityEngine.IMGUIModule.dll" Private="false" />
     <Reference Include="$(BepInExDir)\unhollowed\UnityEngine.TextRenderingModule.dll" Private="false" />
     <Reference Include="$(BepInExDir)\unhollowed\UnityEngine.UIModule.dll" Private="false" />
+    <Reference Include="$(BepInExDir)\unhollowed\UnityEngine.UI.dll" Private="false" />
   </ItemGroup>
 
   <!-- Copy the built plugin into the game. Won't fail the build if TUNIC has the file locked. -->

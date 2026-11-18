@@ -29,6 +29,7 @@ namespace TunicCamera
         internal static ConfigEntry<float> MouseSensitivity;
         internal static ConfigEntry<bool> CameraCollision;
         internal static ConfigEntry<bool> SmoothPlayerMotion;
+        internal static ConfigEntry<bool> HideFogPlanes;
 
         // Per mode
         internal static ConfigEntry<float> OrbitDistance;
@@ -71,6 +72,8 @@ namespace TunicCamera
                 "Pull Orbit/Chase cameras in front of walls. Turn off if invisible level boundaries keep yanking the camera close.");
             SmoothPlayerMotion = Config.Bind("General", "SmoothPlayerMotion", true,
                 "Interpolate the player's physics body in custom modes so the fox doesn't judder. Turn off if the player behaves oddly.");
+            HideFogPlanes = Config.Bind("General", "HideFogPlanes", true,
+                "Hide the black fog planes levels use to black out space around rooms for the default camera (they cover the view from other angles, e.g. in the sewers/catacombs).");
 
             OrbitDistance = Config.Bind("Orbit", "Distance", 10f, "Starting distance from the player.");
             OrbitPitch = Config.Bind("Orbit", "Pitch", 35f, "Starting downward angle, degrees.");

@@ -100,7 +100,7 @@ namespace TunicCamera
             zoomInput = 0f;
             bool paused = Time.timeScale <= 0f;
 
-            if (Input.GetKeyDown(KeyCode.F9)) LogDiagnostics();
+            if (Input.GetKeyDown(KeyCode.F9)) { LogDiagnostics(); LogViewBlockers(); LogPostEffects(); }
             if (Input.GetKeyDown(Plugin.Stereo3DKey.Value)) Plugin.Stereo3D.Value = !Plugin.Stereo3D.Value;
             if (!paused && Input.GetKeyDown(Plugin.CycleKey.Value))
                 Cycle(Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift) ? -1 : 1);
@@ -221,8 +221,10 @@ namespace TunicCamera
                 maskFrames = 0;
                 if (active) Exit();
                 UnhidePlayer();
+                ShowFogPlanes();
                 RestoreInterpolation();
                 maskSuppressed = false;
+                RestoreMaskEffect();
             }
 
             UpdateCamera(cc, cam, player);
@@ -240,15 +242,35 @@ namespace TunicCamera
         /// The game's see-through-walls mask is aligned to the vanilla camera, so custom modes turn it off (3D leaves it
         /// on: the eyes converge on the player, where the mask is drawn).
         /// </summary>
+        DrawCameraMask maskEffect;   // the mask image effect we switched off, to switch back on
+
+        void RestoreMaskEffect()
+        {
+            try { if (maskEffect != null) maskEffect.enabled = true; } catch { }
+            maskEffect = null;
+        }
+
         void SuppressMask(CameraController cc, bool want)
         {
             try
             {
-                if (cc == null) { maskSuppressed = false; return; }
+                if (cc == null) { maskSuppressed = false; RestoreMaskEffect(); return; }
                 if (maskFrames < MaskGraceFrames) want = false;
                 if (want && !maskSuppressed) { maskBeforeSuppress = cc.useMask; maskSuppressed = true; }
-                if (want) cc.useMask = false;
-                else if (maskSuppressed) { cc.useMask = maskBeforeSuppress; maskSuppressed = false; }
+                if (want)
+                {
+                    cc.useMask = false;
+                    // The mask image effect keeps drawing even with the mask off, using a mask lined up with the
+                    // vanilla camera: dark layers with holes from other angles (e.g. the catacombs). Turn it off too.
+                    var fx = DrawCameraMask.instance;
+                    if (fx != null && fx.enabled)
+                    {
+                        RestoreMaskEffect();
+                        fx.enabled = false;
+                        maskEffect = fx;
+                    }
+                }
+                else if (maskSuppressed) { cc.useMask = maskBeforeSuppress; maskSuppressed = false; RestoreMaskEffect(); }
             }
             catch { }
         }
@@ -266,6 +288,7 @@ namespace TunicCamera
             {
                 if (!active) Enter(cc, cam);
                 EnableInterpolation(player);   // cheap no-op once set; re-applies if the player object is replaced
+                if (Time.unscaledTime >= nextFogScan) HideFogPlanesNow();
 
                 // What did the game want this frame? If the transform still holds exactly what we wrote last
                 // frame, the game didn't move it, so keep using the last real game pose.
@@ -518,6 +541,7 @@ namespace TunicCamera
             CameraPatches.OverrideYaw = null;
             ViewportPatches.ClearView();
             UnhidePlayer();
+            ShowFogPlanes();
             RestoreInterpolation();
             foreach (var s in savedCams)
             {
@@ -583,6 +607,43 @@ namespace TunicCamera
         /// so anything parented to the player but drawn elsewhere (e.g. a targeting reticle) stays visible.
         /// Rescanned often so newly equipped items get hidden and things that move away are restored.
         /// </summary>
+        // ---- Fog planes ----------------------------------------------------------------------------------------
+        // Levels black out the space around rooms with big "black fog plane" sheets (shader Custom/Fogplane) placed for
+        // the fixed default camera. From other angles they cover the view, so custom modes switch them off
+        // (forceRenderingOff, which doesn't touch the game's own enabled flag).
+        readonly List<Renderer> hiddenFog = new List<Renderer>();
+        float nextFogScan;
+
+        void HideFogPlanesNow()
+        {
+            nextFogScan = Time.unscaledTime + 2f;   // rooms stream in; pick up new ones
+            if (!Plugin.HideFogPlanes.Value) { ShowFogPlanes(); return; }
+            try
+            {
+                int added = 0;
+                foreach (var o in UnityEngine.Object.FindObjectsOfType(UnhollowerRuntimeLib.Il2CppType.Of<Renderer>()))
+                {
+                    var r = o.Cast<Renderer>();
+                    if (r.forceRenderingOff) continue;
+                    var m = r.sharedMaterial;
+                    if (m == null || m.shader == null || m.shader.name != "Custom/Fogplane") continue;
+                    r.forceRenderingOff = true;
+                    hiddenFog.Add(r);
+                    added++;
+                }
+                if (added > 0) Plugin.Logger.LogInfo($"Hid {added} fog plane(s) for the custom camera.");
+            }
+            catch (Exception e) { Plugin.Logger.LogWarning("Fog plane scan failed: " + e.Message); nextFogScan = float.MaxValue; }
+        }
+
+        void ShowFogPlanes()
+        {
+            foreach (var r in hiddenFog)
+                try { if (r != null) r.forceRenderingOff = false; } catch { }
+            hiddenFog.Clear();
+            nextFogScan = 0f;
+        }
+
         void HidePlayer(Transform player)
         {
             nextHideScan = Time.unscaledTime + 0.2f;
@@ -706,6 +767,99 @@ namespace TunicCamera
             }
         }
 
+        /// <summary>
+        /// F9: list every renderer covering the view (a 9x9 grid of rays from the camera), most-covering first, with
+        /// what it is. Used to find level objects that only make sense from the vanilla camera.
+        /// </summary>
+        void LogViewBlockers()
+        {
+            try
+            {
+                var log = Plugin.Logger;
+                var cc = CameraController.instance;
+                var cam = cc != null ? cc.cachedCamera : null;
+                if (cam == null) return;
+                var player = PlayerCharacter.instance;
+                float playerDist = player != null ? Vector3.Distance(cam.transform.position, player.transform.position) : 50f;
+
+                const int N = 9;
+                var rays = new List<Ray>();
+                for (int y = 0; y < N; y++)
+                    for (int x = 0; x < N; x++)
+                        rays.Add(cam.ViewportPointToRay(new Vector3((x + 0.5f) / N, (y + 0.5f) / N, 0f)));
+
+                var hits = new List<(int count, float near, Renderer r)>();
+                foreach (var o in UnityEngine.Object.FindObjectsOfType(UnhollowerRuntimeLib.Il2CppType.Of<Renderer>()))
+                {
+                    var r = o.Cast<Renderer>();
+                    if (!r.enabled || !r.gameObject.activeInHierarchy) continue;
+                    if (((1 << r.gameObject.layer) & cam.cullingMask) == 0) continue;
+                    var b = r.bounds;
+                    int count = 0; float near = float.MaxValue;
+                    foreach (var ray in rays)
+                        if (b.IntersectRay(ray, out float d) && d < 300f) { count++; near = Mathf.Min(near, d); }
+                    if (count > 0) hits.Add((count, near, r));
+                }
+                hits.Sort((a, b) => b.count != a.count ? b.count.CompareTo(a.count) : a.near.CompareTo(b.near));
+
+                log.LogInfo($"--- View blockers (camera {cam.transform.position}, player {playerDist:F1} away; rays hit of {N * N}) ---");
+                for (int i = 0; i < hits.Count && i < 80; i++)
+                {
+                    var (count, near, r) = hits[i];
+                    string mat = "none", shader = "-"; int queue = 0;
+                    try
+                    {
+                        var m = r.sharedMaterial;
+                        if (m != null) { mat = m.name; queue = m.renderQueue; if (m.shader != null) shader = m.shader.name; }
+                    }
+                    catch { }
+                    var comps = new List<string>();
+                    try
+                    {
+                        foreach (var c in r.GetComponents<Component>())
+                        {
+                            string n = c.GetIl2CppType().Name;
+                            if (n != "Transform" && n != "MeshFilter" && n != "MeshRenderer") comps.Add(n);
+                        }
+                    }
+                    catch { }
+                    log.LogInfo($"  {count} rays, {near:F1}m: '{Path(r.transform)}' layer={LayerMask.LayerToName(r.gameObject.layer)} " +
+                                $"type={r.GetIl2CppType().Name} mat='{mat}' shader='{shader}' queue={queue} shadows={r.shadowCastingMode} " +
+                                $"size={r.bounds.size} [{string.Join(",", comps)}]");
+                }
+                if (hits.Count == 0) log.LogInfo("  (nothing)");
+                try
+                {
+                    log.LogInfo($"  fog={RenderSettings.fog} mode={RenderSettings.fogMode} color={RenderSettings.fogColor} " +
+                                $"start={RenderSettings.fogStartDistance} end={RenderSettings.fogEndDistance} density={RenderSettings.fogDensity}; " +
+                                $"ambient={RenderSettings.ambientMode} {RenderSettings.ambientLight} x{RenderSettings.ambientIntensity}");
+                    log.LogInfo($"  camera clear={cam.clearFlags} bg={cam.backgroundColor} near={cam.nearClipPlane} far={cam.farClipPlane} hidden fog planes={hiddenFog.Count}");
+                }
+                catch (Exception e) { log.LogInfo("  render settings: " + e.Message); }
+            }
+            catch (Exception e) { Plugin.Logger.LogWarning("View blocker scan failed: " + e); }
+        }
+
+        void LogPostEffects()
+        {
+            try
+            {
+                var log = Plugin.Logger;
+                foreach (var o in UnityEngine.Object.FindObjectsOfType(UnhollowerRuntimeLib.Il2CppType.Of<AmplifyColorEffect>()))
+                {
+                    var a = o.Cast<AmplifyColorEffect>();
+                    string T(Texture t) => t == null ? "none" : $"'{t.name}'";
+                    int entered = -1; string vol = "none";
+                    try { entered = a.enteredVolumes != null ? a.enteredVolumes.Count : 0; } catch { }
+                    try { if (a.currentVolumeLut != null) vol = a.currentVolumeLut.name; } catch { }
+                    log.LogInfo($"  AmplifyColor on '{a.name}' enabled={a.enabled} lut={T(a.LutTexture)} blendLut={T(a.LutBlendTexture)} blend={a.BlendAmount} " +
+                                $"mask={T(a.MaskTexture)} depthMask={a.UseDepthMask} volumes={a.UseVolumes} entered={entered} currentVolume={vol} " +
+                                $"proxy={(a.TriggerVolumeProxy == null ? "none" : a.TriggerVolumeProxy.name)} exposure={a.Exposure} tonemap={a.Tonemapper}");
+                }
+            }
+            catch (Exception e) { Plugin.Logger.LogInfo("  AmplifyColor state: " + e.Message); }
+        }
+
         void LogDiagnostics()
         {
             try
@@ -718,9 +872,6 @@ namespace TunicCamera
                 log.LogInfo($"CameraController on '{Path(cc.transform)}', cutsceneFocusMode={cc.cutsceneFocusMode}, useMask={cc.useMask}");
                 foreach (var c in AllCameras(cc, cc.cachedCamera))
                     log.LogInfo($"  Camera '{Path(c.transform)}' enabled={c.enabled} ortho={c.orthographic} size={c.orthographicSize:F2} fov={c.fieldOfView:F1} near={c.nearClipPlane:F2} far={c.farClipPlane:F1} depth={c.depth} pos={c.transform.position} rot={c.transform.eulerAngles}");
-                var all = Camera.allCameras;
-                for (int i = 0; i < all.Length; i++)
-                    log.LogInfo($"  [allCameras] '{Path(all[i].transform)}' ortho={all[i].orthographic} depth={all[i].depth}");
                 var p = PlayerCharacter.instance;
                 if (p != null && p.cachedRigidbody != null) { var rb = p.cachedRigidbody; log.LogInfo($"Player rigidbody: interpolation={rb.interpolation} kinematic={rb.isKinematic} fixedDeltaTime={Time.fixedDeltaTime:F4}"); }
                 if (p != null) { var lt = LockTargetPosition(p); log.LogInfo($"LT target: {(lt.HasValue ? p.zTarget.name + " at " + lt.Value : "none")}, preview: {(p.previewZTarget != null ? p.previewZTarget.name : "none")}"); }
