@@ -38,9 +38,9 @@
     <Reference Include="$(BepInExDir)\unhollowed\UnityEngine.UI.dll" Private="false" />
   </ItemGroup>
 
-  <!-- Copy the built plugin into the game. Won't fail the build if TUNIC has the file locked. -->
-  <Target Name="DeployToGame" AfterTargets="Build">
-    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(BepInExDir)\plugins" ContinueOnError="true" />
+  <!-- Copy the built plugin into the game, where the ZIPs put it. Won't fail the build if TUNIC has the file locked. -->
+  <Target Name="DeployToGame" AfterTargets="Build" Condition="Exists('$(GameDir)\BepInEx\core')">
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(GameDir)\BepInEx\plugins\$(AssemblyName)" ContinueOnError="true" />
   </Target>
 
   <!-- Release builds also make the two ZIPs for GitHub / Nexus Mods in dist\. Both extract into the game folder.
