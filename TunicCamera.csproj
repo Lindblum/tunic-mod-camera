@@ -3,6 +3,7 @@
   <PropertyGroup>
     <TargetFramework>netstandard2.1</TargetFramework>
     <AssemblyName>TunicCamera</AssemblyName>
+    <Version>1.0.1</Version>
     <RootNamespace>TunicCamera</RootNamespace>
     <LangVersion>latest</LangVersion>
     <Nullable>disable</Nullable>
@@ -11,6 +12,10 @@
     <!-- Override on the command line if the game lives elsewhere: dotnet build -p:GameDir="D:\Games\TUNIC" -->
     <GameDir Condition="'$(GameDir)' == ''">C:\Program Files (x86)\Steam\steamapps\common\TUNIC</GameDir>
     <BepInExDir>$(GameDir)\BepInEx</BepInExDir>
+    <!-- The BepInEx build this mod is made and tested against; bundled into the -with-BepInEx ZIP. -->
+    <BepInExVersion>6.0.0-be.572</BepInExVersion>
+    <BepInExUrl>https://builds.bepinex.dev/projects/bepinex_be/572/BepInEx_UnityIL2CPP_x64_9c2b17f_6.0.0-be.572.zip</BepInExUrl>
+    <BepInExSha256>e42f56f0e1c4dd15b8903069fe1d6513dc649d180d514d9a85efdb6e1353a037</BepInExSha256>
   </PropertyGroup>
 
   <ItemGroup>
@@ -36,6 +41,32 @@
   <!-- Copy the built plugin into the game. Won't fail the build if TUNIC has the file locked. -->
   <Target Name="DeployToGame" AfterTargets="Build">
     <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(BepInExDir)\plugins" ContinueOnError="true" />
+  </Target>
+
+  <!-- Release builds also make the two ZIPs for GitHub / Nexus Mods in dist\. Both extract into the game folder.
+       <Name>-<version>-with-BepInEx.zip: BepInEx (pinned official build, hash-checked) + packaging\ + the plugin.
+       <Name>-<version>.zip:              the plugin only, for players who already have BepInEx or are updating. -->
+  <Target Name="PackageRelease" AfterTargets="Build" Condition="'$(Configuration)' == 'Release'">
+    <PropertyGroup>
+      <PkgRoot>$(BaseIntermediateOutputPath)package\</PkgRoot>
+      <BepInExCache>$(BaseIntermediateOutputPath)bepinex\</BepInExCache>
+      <BepInExZip>$(BepInExCache)$([System.IO.Path]::GetFileName('$(BepInExUrl)'))</BepInExZip>
+      <DistDir>$(MSBuildProjectDirectory)\dist\</DistDir>
+      <PluginDir>BepInEx\plugins\$(AssemblyName)\</PluginDir>
+    </PropertyGroup>
+    <ItemGroup>
+      <PackagingFile Include="packaging\**\*" />
+    </ItemGroup>
+    <DownloadFile Condition="!Exists('$(BepInExZip)')" SourceUrl="$(BepInExUrl)" DestinationFolder="$(BepInExCache)" />
+    <VerifyFileHash File="$(BepInExZip)" Algorithm="SHA256" Hash="$(BepInExSha256)" />
+    <RemoveDir Directories="$(PkgRoot)" />
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(PkgRoot)mod\$(PluginDir)" />
+    <Unzip SourceFiles="$(BepInExZip)" DestinationFolder="$(PkgRoot)full\" />
+    <Copy SourceFiles="@(PackagingFile)" DestinationFiles="@(PackagingFile->'$(PkgRoot)full\%(RecursiveDir)%(Filename)%(Extension)')" />
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(PkgRoot)full\$(PluginDir)" />
+    <MakeDir Directories="$(DistDir)" />
+    <ZipDirectory SourceDirectory="$(PkgRoot)mod\" DestinationFile="$(DistDir)$(AssemblyName)-$(Version).zip" Overwrite="true" />
+    <ZipDirectory SourceDirectory="$(PkgRoot)full\" DestinationFile="$(DistDir)$(AssemblyName)-$(Version)-with-BepInEx.zip" Overwrite="true" />
   </Target>
 
 </Project>

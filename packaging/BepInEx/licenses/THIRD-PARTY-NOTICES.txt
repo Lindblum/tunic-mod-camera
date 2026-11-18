@@ -1,0 +1,40 @@
+Third-party software included in TunicCamera-<version>-with-BepInEx.zip
+=======================================================================
+
+This package includes an unmodified copy of BepInEx 6.0.0-be.572 (Unity IL2CPP,
+x64), the official bleeding-edge build from:
+  https://builds.bepinex.dev/projects/bepinex_be/572/BepInEx_UnityIL2CPP_x64_9c2b17f_6.0.0-be.572.zip
+built from commit 9c2b17f3e4437b0d154754a3b9852e664eb98425 of
+  https://github.com/BepInEx/BepInEx
+
+BepInEx and the libraries it ships are listed below with their licenses. The
+full license texts are in this folder. Source code for each is available at
+the address given.
+
+Component                  Files                                        License             Source
+-------------------------  -------------------------------------------  ------------------  ---------------------------------------------
+BepInEx                    BepInEx\core\BepInEx.*.dll,                  LGPL-2.1            https://github.com/BepInEx/BepInEx
+                           BepInEx\core\Il2Cpp.TlsAdapter.dll
+Unity Doorstop             winhttp.dll, doorstop_config.ini             LGPL-2.1            https://github.com/NeighTools/UnityDoorstop
+Il2CppAssemblyUnhollower   BepInEx\core\Unhollower*.dll,                LGPL-3.0            https://github.com/knah/Il2CppAssemblyUnhollower
+                           BepInEx\core\LibAssemblyUnhollower.dll       (with GPL-3.0)
+HarmonyX                   BepInEx\core\0Harmony.dll                    MIT                 https://github.com/BepInEx/HarmonyX
+Harmony                    (code HarmonyX is derived from)              MIT                 https://github.com/pardeike/Harmony
+MonoMod                    BepInEx\core\MonoMod.*.dll                   MIT                 https://github.com/MonoMod/MonoMod
+Mono.Cecil                 BepInEx\core\Mono.Cecil*.dll                 MIT                 https://github.com/jbevain/cecil
+Cpp2IL                     BepInEx\core\Cpp2IL.Core.dll,                MIT                 https://github.com/SamboyCoding/Cpp2IL
+                           BepInEx\core\LibCpp2IL.dll,
+                           BepInEx\core\WasmDisassembler.dll
+Il2CppDumper               BepInEx\core\Il2CppDumper.dll                MIT                 https://github.com/Perfare/Il2CppDumper
+Iced                       BepInEx\core\Iced.dll                        MIT                 https://github.com/icedland/iced
+Capstone.NET               BepInEx\core\Gee.External.Capstone.dll       MIT                 https://github.com/9ee1/Capstone.NET
+Capstone                   (native engine inside Capstone.NET)          BSD-3-Clause        https://github.com/capstone-engine/capstone
+IndexRange                 BepInEx\core\IndexRange.dll                  MIT                 https://github.com/bgrainger/IndexRange
+SemanticVersioning         BepInEx\core\SemanticVersioning.dll          MIT                 https://github.com/adamreeve/semver.net
+Mono                       mono\ (runtime and class libraries)          MIT and others,     https://github.com/mono/mono
+                                                                        see Mono.txt
+
+License files: BepInEx.txt, UnityDoorstop.txt, Il2CppAssemblyUnhollower-LGPL-3.0.txt,
+Il2CppAssemblyUnhollower-GPL-3.0.txt, HarmonyX.txt, Harmony.txt, MonoMod.txt,
+Mono.Cecil.txt, Cpp2IL.txt, Il2CppDumper.txt, Iced.txt, Capstone.NET.txt,
+Capstone.txt, IndexRange.txt, SemanticVersioning.txt, Mono.txt.

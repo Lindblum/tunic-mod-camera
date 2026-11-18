@@ -20,10 +20,23 @@ A BepInEx 6 (IL2CPP) mod for *TUNIC* that adds player-controlled camera modes an
   - the see-through-walls silhouette;
   - depth of field.
 
+## Requirements
+
+- *TUNIC* for Windows (tested with the Steam version).
+- [BepInEx 6.0.0-be.572 (Unity IL2CPP x64)](https://builds.bepinex.dev/projects/bepinex_be/572/BepInEx_UnityIL2CPP_x64_9c2b17f_6.0.0-be.572.zip), included in the `-with-BepInEx` download. It must be this exact build: newer BepInEx 6 builds changed how IL2CPP mods load, and this mod won't load on them.
+
 ## Install
 
-1. Install [BepInEx 6 (IL2CPP, x64)](https://builds.bepinex.dev/projects/bepinex_be) into the game folder (next to `Tunic.exe`) and run the game once.
-2. Copy `TunicCamera.dll` into `BepInEx\plugins\`.
+1. Download `TunicCamera-<version>-with-BepInEx.zip`.
+2. Extract it into the game folder, the one with `Tunic.exe` in it. On Steam: right-click the game → **Manage** → **Browse local files**.
+3. Start the game. The first launch takes a minute or two and needs an internet connection: BepInEx downloads some Unity files and prepares the game's code. It can look frozen; let it finish. Later launches are normal speed.
+4. Tap **R3** (or **F5**) to switch camera.
+
+**Already have BepInEx 6.0.0-be.572?** Download `TunicCamera-<version>.zip` (mod only) instead and extract it into the game folder.
+
+## Updating
+
+Extract the new mod-only `TunicCamera-<version>.zip` into the game folder and overwrite. Your settings are kept. If you installed an earlier version by copying `TunicCamera.dll` straight into `BepInEx\plugins\`, delete that copy.
 
 ## Settings
 
@@ -58,3 +71,13 @@ Requires the .NET SDK and BepInEx installed in the game (references come from it
 dotnet build -c Release
 dotnet build -c Release -p:GameDir="D:\Games\TUNIC"   # if the game isn't in the default Steam folder
 ```
+
+Release builds also put both release ZIPs in `dist\`. The `-with-BepInEx` ZIP is made from the BepInEx build pinned in the `.csproj` (downloaded once and checked against its SHA-256 hash) plus the files in `packaging\`.
+
+## Uninstall
+
+Delete the `BepInEx\plugins\TunicCamera` folder. To remove BepInEx as well, delete `winhttp.dll`, `doorstop_config.ini`, `changelog.txt`, and the `BepInEx` and `mono` folders from the game folder.
+
+## Licenses
+
+The `-with-BepInEx` download includes an unmodified copy of BepInEx and the libraries it ships with. Their licenses and source links are in `BepInEx\licenses\` (see `THIRD-PARTY-NOTICES.txt` there).
