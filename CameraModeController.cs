@@ -173,6 +173,7 @@ namespace TunicCamera
             if (mode == CamMode.FirstPerson) UnhidePlayer();
             mode = next;
             modeNeedsInit = true;
+            pendingTransition = Plugin.TransitionTime.Value > 0f;
             banner = "Camera: " + DisplayName(next); bannerUntil = Time.unscaledTime + 1.5f;
             Plugin.Logger.LogInfo("Camera mode -> " + DisplayName(next));
         }
@@ -278,15 +279,19 @@ namespace TunicCamera
 
         void UpdateCamera(CameraController cc, Camera cam, PlayerCharacter player)
         {
-            bool want = mode != CamMode.Default && cc != null && cam != null && player != null && !cc.cutsceneFocusMode;
+            bool canRun = cc != null && cam != null && player != null && !cc.cutsceneFocusMode;
+            // Default is the game's camera, but while gliding back to it we still drive the camera.
+            bool want = canRun && (mode != CamMode.Default || (active && (transitioning || pendingTransition)));
             if (!want)
             {
+                transitioning = false; pendingTransition = false;
                 if (active) Exit();
                 return;
             }
 
             try
             {
+                bool wasActive = active;
                 if (!active) Enter(cc, cam);
                 EnableInterpolation(player);   // cheap no-op once set; re-applies if the player object is replaced
                 if (Time.unscaledTime >= nextFogScan) HideFogPlanesNow();
@@ -299,6 +304,8 @@ namespace TunicCamera
                 Transform pt = player.transform;
                 Vector3 feet = pt.position;
                 if (modeNeedsInit) InitMode(cam, pt);
+                if (pendingTransition) { pendingTransition = false; BeginTransition(wasActive, cam); }
+                float tp = transitioning ? Mathf.Clamp01((Time.unscaledTime - transStart) / Mathf.Max(Plugin.TransitionTime.Value, 0.01f)) : 1f;
 
                 Vector3 pos; Quaternion rot; float near = 0.1f, far = 1000f;
                 Vector3? lockOn = LockTargetPosition(player);
@@ -383,9 +390,14 @@ namespace TunicCamera
                         rot = Quaternion.Euler(pitch, yaw, 0f);
                         pos = pivot;
                         near = 0.03f;
-                        if (Time.unscaledTime >= nextHideScan) HidePlayer(pt);
+                        // Hide the fox only once the camera has nearly arrived in its head.
+                        if (Time.unscaledTime >= nextHideScan && tp > 0.85f) HidePlayer(pt);
                         break;
                     }
+                    case CamMode.Default:
+                        // Gliding back to the game's camera: aim at wherever the game has it now.
+                        pos = gamePos; rot = gameRot;
+                        break;
                     default:
                         throw new InvalidOperationException("Unhandled camera mode " + mode);
                 }
@@ -395,7 +407,29 @@ namespace TunicCamera
                 float outFov = mode == CamMode.Orbit ? Plugin.OrbitFov.Value
                              : mode == CamMode.Chase ? Plugin.ChaseFov.Value
                              : fov;
+
+                if (transitioning)
+                {
+                    if (tp >= 1f)
+                    {
+                        transitioning = false;
+                        if (mode == CamMode.Default) { Exit(); return; }
+                    }
+                    else
+                    {
+                        var target = mode == CamMode.Default
+                            ? GamePose(cam)
+                            : new CamPose { pos = pos, rot = rot, fov = outFov, near = near, far = far };
+                        float s = tp * tp * (3f - 2f * tp);   // ease in and out
+                        BlendPoses(transFrom, target, s, feet + Vector3.up * Plugin.PivotHeight.Value,
+                                   out pos, out rot, out outFov, out near, out far);
+                    }
+                }
+                else if (mode == CamMode.Default) { Exit(); return; }
+
                 Apply(cc, cam, pos, rot, outFov, near, far);
+                lastApplied = new CamPose { pos = pos, rot = rot, fov = outFov, near = near, far = far };
+                haveLastApplied = true;
 
                 // Movement direction follows the camera in rotating modes; vanilla heading otherwise.
                 CameraPatches.OverrideYaw = rot.eulerAngles.y;
@@ -429,6 +463,62 @@ namespace TunicCamera
                     pivot = feet + Vector3.up * Plugin.FirstPersonEyeHeight.Value;
                     nextHideScan = 0f; break;
             }
+        }
+
+        // ---- mode transitions ----
+        // A camera pose is described around a focus point (where the view axis passes the player): the half-height of
+        // the view there, the field of view, and how much is visible in front of / behind it. Blending those (rather
+        // than raw positions) keeps the player framed throughout, and lets the game's orthographic camera take part:
+        // it's matched by a very narrow perspective view from far away, which widens and moves in.
+        struct CamPose { public Vector3 pos; public Quaternion rot; public float fov, near, far, orthoSize; public bool ortho; }
+        const float FakeOrthoFov = 3f;
+        bool pendingTransition, transitioning, haveLastApplied;
+        float transStart;
+        CamPose transFrom, lastApplied;
+
+        void BeginTransition(bool wasActive, Camera cam)
+        {
+            transFrom = wasActive && haveLastApplied ? lastApplied : GamePose(cam);
+            transStart = Time.unscaledTime;
+            transitioning = true;
+        }
+
+        /// <summary>The game's own camera pose, as it would be with the mod off.</summary>
+        CamPose GamePose(Camera cam)
+        {
+            var p = new CamPose { pos = gamePos, rot = gameRot, fov = cam.fieldOfView, near = cam.nearClipPlane, far = cam.farClipPlane, orthoSize = cam.orthographicSize };
+            if (savedCams.Count > 0)
+            {
+                var c = savedCams[0];   // the main camera's real settings, saved before we took over
+                p.ortho = c.ortho; p.fov = c.fov; p.near = c.near; p.far = c.far;
+            }
+            else p.ortho = cam.orthographic;
+            return p;
+        }
+
+        static void Describe(CamPose p, Vector3 focusRef, out Vector3 focus, out float halfHeight, out float fovEff, out float frontSlack, out float backSlack)
+        {
+            Vector3 fwd = p.rot * Vector3.forward;
+            float d = Mathf.Max(0f, Vector3.Dot(focusRef - p.pos, fwd));
+            focus = p.pos + fwd * d;
+            fovEff = p.ortho ? FakeOrthoFov : Mathf.Clamp(p.fov, 1f, 170f);
+            halfHeight = p.ortho ? p.orthoSize : d * Mathf.Tan(fovEff * 0.5f * Mathf.Deg2Rad);
+            frontSlack = d - p.near;   // visible depth in front of the focus
+            backSlack = p.far - d;     // and behind it
+        }
+
+        static void BlendPoses(CamPose a, CamPose b, float s, Vector3 focusRef,
+                               out Vector3 pos, out Quaternion rot, out float fieldOfView, out float near, out float far)
+        {
+            Describe(a, focusRef, out var fa, out var ha, out var va, out var nfa, out var bka);
+            Describe(b, focusRef, out var fb, out var hb, out var vb, out var nfb, out var bkb);
+            rot = Quaternion.Slerp(a.rot, b.rot, s);
+            fieldOfView = Mathf.Exp(Mathf.Lerp(Mathf.Log(va), Mathf.Log(vb), s));   // even feel across narrow and wide
+            float h = Mathf.Lerp(ha, hb, s);
+            float dist = h / Mathf.Tan(fieldOfView * 0.5f * Mathf.Deg2Rad);
+            pos = Vector3.Lerp(fa, fb, s) - rot * Vector3.forward * dist;
+            near = Mathf.Max(0.03f, dist - Mathf.Lerp(nfa, nfb, s));
+            far = Mathf.Max(near + 1f, dist + Mathf.Lerp(bka, bkb, s));
         }
 
         /// <summary>Is the player focusing (LT held, or focus toggled on), with or without a target?</summary>
@@ -553,6 +643,7 @@ namespace TunicCamera
         void Exit()
         {
             active = false;
+            transitioning = false; haveLastApplied = false;
             CameraPatches.OverrideYaw = null;
             ViewportPatches.ClearView();
             UnhidePlayer();
