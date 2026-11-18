@@ -225,6 +225,7 @@ namespace TunicCamera
                 RestoreInterpolation();
                 maskSuppressed = false;
                 RestoreMaskEffect();
+                sceneChangeTime = Time.unscaledTime;
             }
 
             UpdateCamera(cc, cam, player);
@@ -516,7 +517,19 @@ namespace TunicCamera
             try
             {
                 var rb = player.cachedRigidbody;
-                if (rb == null || (haveSavedInterp && rb == interpBody)) return;
+                if (rb == null) return;
+                // While the game has time stopped (it does on arrival in an area, while lighting settles) no physics
+                // step runs, so an interpolated body keeps snapping the player back to where physics last had it:
+                // the game's placement at the arrival point is lost and the fox falls out of the world. So no
+                // interpolation then, nor for a moment after an area change.
+                if (Time.timeScale <= 0f || Time.unscaledTime < sceneChangeTime + 1.5f) { RestoreInterpolation(); return; }
+                if (haveSavedInterp && rb == interpBody)
+                {
+                    // The game moved the player by its transform (a teleport): make physics agree right away.
+                    Vector3 tp = player.transform.position;
+                    if ((rb.position - tp).sqrMagnitude > 9f) rb.position = tp;
+                    return;
+                }
                 RestoreInterpolation();
                 interpBody = rb; savedInterp = rb.interpolation; haveSavedInterp = true;
                 rb.interpolation = RigidbodyInterpolation.Interpolate;
@@ -527,6 +540,8 @@ namespace TunicCamera
                 Plugin.SmoothPlayerMotion.Value = false;
             }
         }
+
+        float sceneChangeTime;
 
         void RestoreInterpolation()
         {
